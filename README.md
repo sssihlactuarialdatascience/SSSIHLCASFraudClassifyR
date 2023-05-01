@@ -1,10 +1,11 @@
 
 <!-- README.md is generated from README.Rmd. Please edit that file -->
 
-# SSSIHLCASFraudClassifyR <img src="man/figures/logo.png" align="right" height="134"/>
+# SSSIHLCASFraudClassifyR <img src="man/figures/logo.png" align="right" height="106" />
 
 SSSIHLCASFraudClassifyR is one of the outputs of the 2022 CAS( Casualty
-Actuarial Society) Individual Grant Award Project.
+Actuarial Society) Individual Grant Award Project given to Sri Sathya
+Sai Institue of Higher Learning (SSSIHL).
 
 The objective of the project is to provide a framework where actuarial
 inputs can be integrated into Machine Learning models to improve fraud
@@ -24,7 +25,7 @@ You can install the development version of SSSIHLCASFraudClassifyR like
 so:
 
 ``` r
-# FILL THIS IN! HOW CAN PEOPLE INSTALL YOUR DEV PACKAGE?
+devtools::install_github("https://github.com/sssihlactuarialdatascience/SSSIHLCASFraudClassifyR")
 ```
 
 ## Example
@@ -50,7 +51,6 @@ library(dplyr)
 
 data("claims_data_sample")
 data("trigger_data")
-## basic example code
 
 claims_data_sample <-
   claim_amount_trigger_map(

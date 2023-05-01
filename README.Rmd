@@ -28,7 +28,7 @@ The package contains various functions that add flags to the claims data based o
 You can install the development version of SSSIHLCASFraudClassifyR like so:
 
 ``` r
-# FILL THIS IN! HOW CAN PEOPLE INSTALL YOUR DEV PACKAGE?
+devtools::install_github("https://github.com/sssihlactuarialdatascience/SSSIHLCASFraudClassifyR")
 ```
 
 ## Example
