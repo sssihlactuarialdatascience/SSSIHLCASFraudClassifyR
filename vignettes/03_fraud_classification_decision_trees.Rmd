@@ -1,0 +1,229 @@
+---
+title: "Fraud Classification with Decision Trees"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{fraud_classification_decision_trees}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  warning = FALSE,
+  message = FALSE
+)
+options(rmarkdown.html_vignette.check_title = FALSE)
+```
+
+## Improving fit of a decision tree model
+
+One can add triggers to a standard claims dataset to improve your model's predictability of fraud. We illustrate this using a decision tree model in this vignette. In the data pre-processing vignette, we treated the data imbalance in claims data using 4 different types of data imbalance techniques - ADASYN, SMOTE, MWMOTE and ROSE.
+
+The decision tree algorithm is a supervised learning algorithm that can be used for both classification and regression tasks. In this scenario we are using it for a binary classification problem.
+
+The decision tree algorithm creates a tree-like structure that helps make predictions based on certain characteristics of the data. It keeps dividing the data into smaller groups based on the most important features, until it finds a simple answer. The tree can then be used to predict new data.
+
+## Importing required libraries
+
+```{r}
+library(dplyr)
+library(rpart)
+library(pROC)
+library(caret)
+library(PRROC)
+library(rpart.plot)
+library(tidyr)
+library(stringr)
+library(ggplot2)
+options(scipen=999)
+```
+
+## Creating decision tree model function
+
+-   We create a function for implementing the decision tree model in order to easily apply it to the various data sets.
+
+-   The function takes two arguments: train data set and test data set
+
+-   The response variable is "fraud" and all other variables are considered as predictor variables.
+
+-   Gini index is used as the default parameter to measure the quality of the split.
+
+-   Overall, the function performs binary classification to predict fraud or non-fraud using a decision tree and evaluates its performance using various metrics. 
+
+-   F2 score is used as the most appropriate metric to compare the model-fit results. This is because we want to improve identification of fraud.
+
+-   The function also provides a visual representation of the decision tree.
+
+```{r}
+
+decision_tree <- function(data_train, data_test) {
+  tree <-
+    rpart(fraud ~ .,
+          data = data_train,
+          method = 'class',
+          minsplit = 5)
+  tree.pred <-
+    predict(tree, data_test %>% select(-c("fraud")), type = "prob")[, 2]
+  roc_obj <- roc(data_test$fraud, tree.pred)
+  threshold <- coords(roc_obj, "best")[[1]]
+  tree.pred <- ifelse(tree.pred > threshold, 1, 0)
+  
+  c <-
+    confusionMatrix(as.factor(tree.pred),
+                    data_test$fraud,
+                    mode = "everything",
+                    positive = "1")
+  c <-
+    rbind(c,
+          c(
+            method = paste0("DT ", deparse(substitute(data_train))),
+            c$overall[1],
+            c$byClass[c(1, 2, 5, 6, 7)],
+            roc_obj$auc,
+            pr.curve(tree.pred, data_test$fraud)$auc.integral
+          ))
+  c = as.data.frame(c[-1, ])
+  
+  colnames(c)[1] = "Method+dataset"
+  colnames(c)[8] = "ROC-AUC"
+  colnames(c)[9] = "PR-AUC"
+  
+  c <-
+    c %>%
+    mutate(
+      across(.cols = -`Method+dataset`, .fns = as.numeric),
+      trigger = ifelse(stringr::str_detect(`Method+dataset`, "wo"), "N", "Y")
+    ) %>%
+    separate(`Method+dataset`, c("method", "NA_1"), " ", remove = TRUE) %>%
+    separate(NA_1, c("imbalance", NA, NA)) %>% 
+    mutate(`F2 Score` = ((1 + 2^2) * Precision * Recall) / (2^2 * Precision + Recall)) %>% 
+    select(method, imbalance,trigger ,`F2 Score`)
+  
+  rpart.plot(tree, extra = 101)
+  return(c)
+}
+
+```
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/adasyn_wo_triggers_train.rda")
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/adasyn_wo_triggers_test.rda")
+
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/smote_wo_triggers_train.rda")
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/smote_wo_triggers_test.rda")
+
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/mwmote_wo_triggers_train.rda")
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/mwmote_wo_triggers_test.rda")
+
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/rose_wo_triggers_train.rda")
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/rose_wo_triggers_test.rda")
+
+```
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/adasyn_w_triggers_train.rda")
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/adasyn_w_triggers_test.rda")
+
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/smote_w_triggers_train.rda")
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/smote_w_triggers_test.rda")
+
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/mwmote_w_triggers_train.rda")
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/mwmote_w_triggers_test.rda")
+
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/rose_w_triggers_train.rda")
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/rose_w_triggers_test.rda")
+```
+
+## Applying the function to the datasets
+
+The function is now applied to each of the datasets which are adjusted for the data imbalance using the ADASYN, SMOTE, MWMOTE and ROSE.
+
+**In brief about these methods:**
+
+-   ADASYN(Adaptive Synthetic Sampling) generates synthetic data points for the minority class in imbalanced datasets, creating more samples in underrepresented regions to improve model performance.
+
+-   SMOTE (Synthetic Minority Over-sampling Technique) generates synthetic data points for the minority class in imbalanced datasets by interpolating between minority class examples to create new samples.
+
+-   MWMOTE(Majority Weighted Minority Oversampling Technique) is a modification of SMOTE that aims to address the issue of noisy examples by adding a weighting factor to each minority class example based on its level of noise.
+
+-   ROSE (Random Over-Sampling Examples) generates synthetic data points for the minority class by randomly selecting a sample from the minority class.
+
+### ADASYN
+
+```{r}
+adasyn_wo_triggers <-
+  decision_tree(adasyn_wo_triggers_train,
+                adasyn_wo_triggers_test)
+```
+
+```{r}
+adasyn_w_triggers <-
+  decision_tree(adasyn_w_triggers_train,
+                adasyn_w_triggers_test)
+```
+
+### SMOTE
+
+```{r}
+smote_wo_triggers <- 
+  decision_tree(smote_wo_triggers_train,
+                smote_wo_triggers_test)
+```
+
+```{r}
+smote_w_triggers <-
+  decision_tree(smote_w_triggers_train,
+                smote_w_triggers_test)
+```
+
+### MWMOTE
+
+```{r}
+mwmote_wo_triggers <- 
+  decision_tree(mwmote_wo_triggers_train,
+                mwmote_wo_triggers_test)
+```
+
+```{r}
+mwmote_w_triggers <-
+  decision_tree(mwmote_w_triggers_train,
+                mwmote_w_triggers_test)
+```
+
+### ROSE
+
+```{r}
+rose_wo_triggers <- 
+  decision_tree(rose_wo_triggers_train,
+                rose_wo_triggers_test)
+```
+
+```{r}
+rose_w_triggers <-
+  decision_tree(rose_w_triggers_train,
+                rose_w_triggers_test)
+```
+
+## Results comparison
+
+```{r }
+bind_rows(
+  adasyn_wo_triggers,
+  adasyn_w_triggers,
+  smote_wo_triggers,
+  smote_w_triggers,
+  mwmote_wo_triggers,
+  mwmote_w_triggers,
+  rose_wo_triggers,
+  rose_w_triggers
+) %>%
+  select(imbalance, trigger, everything()) %>% 
+  ggplot() +
+  geom_bar(aes(x = trigger, y = `F2 Score`, fill = trigger), stat='identity') +
+  facet_wrap(~imbalance)
+```
+
+
+As can be seen from the above charts, the models with the trigger fields have shown better predictability compared to those without triggers.

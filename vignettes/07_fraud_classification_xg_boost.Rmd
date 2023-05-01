@@ -1,0 +1,262 @@
+---
+title: "Fraud Classification with XG Boost"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{fraud_classification_xg_boost}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  warning = FALSE,
+  message = FALSE
+)
+options(rmarkdown.html_vignette.check_title = FALSE)
+```
+
+## Improving fit of a XGBoost model
+
+One can add triggers to a standard claims dataset to improve your model's predictability of fraud. We illustrate this using a XGBoost model in this vignette. In the data pre-processing vignette, we treated the data imbalance in claims data using 4 different types of data imbalance techniques - ADASYN, SMOTE, MWMOTE and ROSE.
+
+XGBoost is a supervised machine learning algorithm used for both regression and classification problems. In this case we are using it for binary classification. It's an improved version of Gradient Boosting Machine (GBM) that's faster, more accurate, and scalable.
+
+XGBoost creates simple decision trees, calculates the gradient of the loss function, adds regularization to prevent overfitting, and combines the predictions of all the trees to make a final prediction. XGBoost is faster and more accurate than GBM, can handle missing data, and is less prone to overfitting, but requires careful tuning of hyperparameters.
+
+## Importing required libraries
+
+```{r}
+library(dplyr)
+library(rpart)
+library(pROC)
+library(caret)
+library(xgboost)
+library(PRROC)
+library(tidyr)
+library(stringr)
+library(ggplot2)
+options(scipen=999)
+```
+
+## Creating XG Boost model function
+
+-   We create a function for implementing the XGBoost model in order to easily apply it on the various datasets.
+
+-   The function takes two arguments: train dataset and test dataset
+
+-   The response variable is "fraud" and all other variables are considered as predictor variables.
+
+-   The number of boosting rounds is set to 15
+
+-   Overall this function is implementing the XGBoost algorithm to train a binary classification model to predict fraud or non-fraud and evaluates its performance using various metrics. 
+
+-   F2 score is used as the most appropriate metric to compare the model-fit results. This is because we want to improve identification of fraud.
+
+-   It also generates a plot of the variable importance scores.
+
+
+```{r}
+
+xg_boost <- function(data_train, data_test) {
+  dtrain <-
+    xgb.DMatrix(data = data.matrix(data_train %>%
+                                     dplyr::select(-c(fraud))),
+                label = data_train$fraud)
+  
+  dtest <-
+    xgb.DMatrix(data = data.matrix(data_test %>%
+                                     dplyr::select(-c(fraud))),
+                label = data_test$fraud)
+  
+  # Train the model
+  model <- xgb.train(data = dtrain, nrounds = 15)
+  
+  # Use the model to make predictions on test data
+  pred_y <- predict(model, dtest)
+  
+  # Get the ROC curve and calculate the ROC AUC
+  roc_obj <- roc(data_test$fraud, pred_y)
+  roc_auc <- auc(roc_obj)
+  
+  # Get the PR curve and calculate the PR AUC
+  pr_obj <- pr.curve(data_test$fraud, pred_y)
+  pr_auc <- pr_obj$auc.integral
+  
+  # Set the threshold based on the optimal ROC curve threshold
+  threshold <- coords(roc_obj, "best")[[1]]
+  tree.pred <- ifelse(pred_y > threshold, 1, 0)
+  
+  # Confusion Matrix
+  c1 <-
+    confusionMatrix(data_test$fraud,
+                    as.factor(tree.pred),
+                    mode = "everything",
+                    positive = "1")
+  c <-
+    rbind(c1, c(
+      paste0("XGB ", deparse(substitute(data_train))),
+      c1$overall[1],
+      c1$byClass[c(1, 2, 5, 6, 7)],
+      roc_auc,
+      pr_auc
+    ))
+  c <- as.data.frame(c[-1, ])
+  
+  colnames(c)[1] = "Method+dataset"
+  colnames(c)[8] = "ROC-AUC"
+  colnames(c)[9] = "PR-AUC"
+  
+  c <-
+    c %>%
+    mutate(
+      across(.cols = -`Method+dataset`, .fns = as.numeric),
+      trigger = ifelse(stringr::str_detect(`Method+dataset`, "wo"), "N", "Y")
+    ) %>%
+    separate(`Method+dataset`, c("method", "NA_1"), " ", remove = TRUE) %>%
+    separate(NA_1, c("imbalance", NA, NA)) %>% 
+    mutate(`F2 Score` = ((1 + 2^2) * Precision * Recall) / (2^2 * Precision + Recall)) %>% 
+    select(method, imbalance,trigger ,`F2 Score`)
+  
+  xgb.plot.importance(xgb.importance(names(data_train %>% dplyr::select(-c(
+    "fraud"
+  ))), model = model))
+  
+  return(c)
+  
+}
+
+```
+
+## Applying the function to the datasets
+
+The function is now applied to each of the datasets which are adjusted for the data imbalance using the ADASYN, SMOTE, MWMOTE and ROSE.
+
+**In brief about these methods:**
+
+-   ADASYN(Adaptive Synthetic Sampling) generates synthetic data points for the minority class in imbalanced datasets, creating more samples in underrepresented regions to improve model performance.
+
+-   SMOTE (Synthetic Minority Over-sampling Technique) generates synthetic data points for the minority class in imbalanced datasets by interpolating between minority class examples to create new samples.
+
+-   MWMOTE(Majority Weighted Minority Oversampling Technique) is a modification of SMOTE that aims to address the issue of noisy examples by adding a weighting factor to each minority class example based on its level of noise.
+
+-   ROSE (Random Over-Sampling Examples) generates synthetic data points for the minority class by randomly selecting a sample from the minority class.
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/adasyn_wo_triggers_train.rda")
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/adasyn_wo_triggers_test.rda")
+
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/smote_wo_triggers_train.rda")
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/smote_wo_triggers_test.rda")
+
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/mwmote_wo_triggers_train.rda")
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/mwmote_wo_triggers_test.rda")
+
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/rose_wo_triggers_train.rda")
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/rose_wo_triggers_test.rda")
+
+```
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/adasyn_w_triggers_train.rda")
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/adasyn_w_triggers_test.rda")
+
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/smote_w_triggers_train.rda")
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/smote_w_triggers_test.rda")
+
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/mwmote_w_triggers_train.rda")
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/mwmote_w_triggers_test.rda")
+
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/rose_w_triggers_train.rda")
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/rose_w_triggers_test.rda")
+```
+
+
+### ADASYN
+
+```{r message=FALSE, warning=FALSE}
+adasyn_wo_triggers <- 
+  xg_boost(adasyn_wo_triggers_train,
+                adasyn_wo_triggers_test)
+```
+
+
+```{r message=FALSE, warning=FALSE}
+adasyn_w_triggers <-
+  xg_boost(adasyn_w_triggers_train,
+                adasyn_w_triggers_test)
+```
+
+
+
+
+
+### SMOTE
+
+```{r}
+smote_wo_triggers <- 
+  xg_boost(smote_wo_triggers_train,
+                smote_wo_triggers_test)
+```
+
+
+```{r}
+smote_w_triggers <-
+  xg_boost(smote_w_triggers_train,
+                smote_w_triggers_test)
+```
+
+### MWMOTE
+
+```{r}
+mwmote_wo_triggers <- 
+  xg_boost(mwmote_wo_triggers_train,
+                mwmote_wo_triggers_test)
+```
+
+
+```{r}
+mwmote_w_triggers <-
+  xg_boost(mwmote_w_triggers_train,
+                mwmote_w_triggers_test)
+```
+
+### ROSE
+
+```{r}
+rose_wo_triggers <- 
+  xg_boost(rose_wo_triggers_train,
+                rose_wo_triggers_test)
+```
+
+
+```{r}
+rose_w_triggers <-
+  xg_boost(rose_w_triggers_train,
+                rose_w_triggers_test)
+```
+
+
+## Results comparison
+
+```{r}
+bind_rows(
+  adasyn_wo_triggers,
+  adasyn_w_triggers,
+  smote_wo_triggers,
+  smote_w_triggers,
+  mwmote_wo_triggers,
+  mwmote_w_triggers,
+  rose_wo_triggers,
+  rose_w_triggers
+) %>%
+  select(imbalance, trigger, everything()) %>% 
+  ggplot() +
+  geom_bar(aes(x = trigger, y = `F2 Score`, fill = trigger), stat='identity') +
+  facet_wrap(~imbalance)
+```
+
+
+As can be seen from the above charts, the models with the trigger fields have shown better predictability compared to those without triggers.

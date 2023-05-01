@@ -1,0 +1,257 @@
+---
+title: "Fraud Classification with Naive Bayes"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{fraud_classification_naive_bayes}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  warning = FALSE,
+  message = FALSE
+)
+options(rmarkdown.html_vignette.check_title = FALSE)
+```
+
+## Improving fit of a decision tree model
+
+One can add triggers to a standard claims dataset to improve your model's predictability of fraud. We illustrate this using a decision tree model in this vignette. In the data pre-processing vignette, we treated the data imbalance in claims data using 4 different types of data imbalance techniques - ADASYN, SMOTE, MWMOTE and ROSE.
+
+The Naive Bayes algorithm is a supervised machine learning algorithm used for classification problems and is based on probability theory. In this scenario we are using it for a binary classification problem.
+
+It works by calculating the probability of each class based on the training data, the probability of each feature given the class, and then combining them to get the probability of the class given the evidence. The algorithm selects the class with the highest probability as the predicted class. Naive Bayes assumes that features are independent of each other.
+
+## Importing required libraries
+
+```{r}
+library(dplyr)
+library(rpart)
+library(pROC)
+library(caret)
+library(naivebayes)
+library(e1071)
+library(PRROC)
+library(tidyr)
+library(stringr)
+library(ggplot2)
+options(scipen=999)
+```
+
+
+
+## Creating Naive Bayes model function
+
+-   We create a function for implementing the Naive Bayes model in order to easily apply it on the various datasets.
+
+-   The function takes two arguments: train dataset and test dataset.
+
+-   The response variable is "fraud" and all other variables are considered as predictor variables.
+
+-   Overall this function fits a Naive Bayes model for binary classification of fraud or non-fraud and evaluates its performance using various metrics.
+
+-   F2 score is used as the most appropriate metric to compare the model-fit results. This is because we want to improve identification of fraud.
+
+
+```{r}
+
+
+naive_bayes_classifier <- function(data_train, data_test) {
+  # fit model
+  fit <- naiveBayes(fraud ~ ., data = data_train)
+  
+  # summarize the fit
+  #print(fit)
+  
+  # make predictions on test set
+  test_prob <-
+    predict(fit,
+            newdata = data_test %>% dplyr::select(-c("fraud")),
+            type = "raw")[, 2]
+  
+  # calculate ROC AUC
+  roc_auc <- roc(data_test$fraud, test_prob)$auc
+  
+  # calculate PR AUC
+  pr_auc <- pr.curve(data_test$fraud, test_prob)$auc.integral
+  
+  # set threshold based on optimal ROC curve threshold
+  threshold <- coords(roc(data_test$fraud, test_prob), "best")[[1]]
+  
+  # make predictions based on threshold
+  model_nb_test_pred <- ifelse(test_prob > threshold, 1, 0)
+  
+  # confusion matrix
+  c1 <-
+    confusionMatrix(
+      data_test$fraud,
+      as.factor(model_nb_test_pred),
+      mode = "everything",
+      positive = "1"
+    )
+  c <-
+    rbind(c1, c(
+      paste0("NB ", deparse(substitute(data_train))),
+      c1$overall[1],
+      c1$byClass[c(1, 2, 5, 6, 7)],
+      roc_auc,
+      pr_auc
+    ))
+  c <- as.data.frame(c[-1, ])
+  
+  
+  colnames(c)[1] = "Method+dataset"
+  colnames(c)[8] = "ROC-AUC"
+  colnames(c)[9] = "PR-AUC"
+  
+  c <-
+    c %>%
+    mutate(
+      across(.cols = -`Method+dataset`, .fns = as.numeric),
+      trigger = ifelse(stringr::str_detect(`Method+dataset`, "wo"), "N", "Y")
+    ) %>%
+    separate(`Method+dataset`, c("method", "NA_1"), " ", remove = TRUE) %>%
+    separate(NA_1, c("imbalance", NA, NA)) %>% 
+    mutate(`F2 Score` = ((1 + 2^2) * Precision * Recall) / (2^2 * Precision + Recall)) %>% 
+    select(method, imbalance,trigger ,`F2 Score`)
+  
+  
+  return(c)
+  
+}
+
+```
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/adasyn_wo_triggers_train.rda")
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/adasyn_wo_triggers_test.rda")
+
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/smote_wo_triggers_train.rda")
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/smote_wo_triggers_test.rda")
+
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/mwmote_wo_triggers_train.rda")
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/mwmote_wo_triggers_test.rda")
+
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/rose_wo_triggers_train.rda")
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/rose_wo_triggers_test.rda")
+
+```
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/adasyn_w_triggers_train.rda")
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/adasyn_w_triggers_test.rda")
+
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/smote_w_triggers_train.rda")
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/smote_w_triggers_test.rda")
+
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/mwmote_w_triggers_train.rda")
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/mwmote_w_triggers_test.rda")
+
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/rose_w_triggers_train.rda")
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/rose_w_triggers_test.rda")
+```
+
+## Applying the function to the datasets
+
+The function is now applied to each of the datasets which are adjusted for the data imbalance using the ADASYN, SMOTE, MWMOTE and ROSE.
+
+**In brief about these methods:**
+
+-   ADASYN(Adaptive Synthetic Sampling) generates synthetic data points for the minority class in imbalanced datasets, creating more samples in underrepresented regions to improve model performance.
+
+-   SMOTE (Synthetic Minority Over-sampling Technique) generates synthetic data points for the minority class in imbalanced datasets by interpolating between minority class examples to create new samples.
+
+-   MWMOTE(Majority Weighted Minority Oversampling Technique) is a modification of SMOTE that aims to address the issue of noisy examples by adding a weighting factor to each minority class example based on its level of noise.
+
+-   ROSE (Random Over-Sampling Examples) generates synthetic data points for the minority class by randomly selecting a sample from the minority class.
+
+### ADASYN
+
+```{r}
+adasyn_wo_triggers <- 
+  naive_bayes_classifier(adasyn_wo_triggers_train,
+                adasyn_wo_triggers_test)
+```
+
+
+```{r}
+adasyn_w_triggers <-
+  naive_bayes_classifier(adasyn_w_triggers_train,
+                adasyn_w_triggers_test)
+```
+
+
+
+
+
+### SMOTE
+
+```{r}
+smote_wo_triggers <- 
+  naive_bayes_classifier(smote_wo_triggers_train,
+                smote_wo_triggers_test)
+```
+
+
+```{r}
+smote_w_triggers <-
+  naive_bayes_classifier(smote_w_triggers_train,
+                smote_w_triggers_test)
+```
+
+### MWMOTE
+
+```{r}
+mwmote_wo_triggers <- 
+  naive_bayes_classifier(mwmote_wo_triggers_train,
+                mwmote_wo_triggers_test)
+```
+
+
+```{r}
+mwmote_w_triggers <-
+  naive_bayes_classifier(mwmote_w_triggers_train,
+                mwmote_w_triggers_test)
+```
+
+### ROSE
+
+```{r}
+rose_wo_triggers <- 
+  naive_bayes_classifier(rose_wo_triggers_train,
+                rose_wo_triggers_test)
+```
+
+
+```{r}
+rose_w_triggers <-
+  naive_bayes_classifier(rose_w_triggers_train,
+                rose_w_triggers_test)
+```
+
+## Results comparison
+
+```{r}
+bind_rows(
+  adasyn_wo_triggers,
+  adasyn_w_triggers,
+  smote_wo_triggers,
+  smote_w_triggers,
+  mwmote_wo_triggers,
+  mwmote_w_triggers,
+  rose_wo_triggers,
+  rose_w_triggers
+) %>%
+  select(imbalance, trigger, everything()) %>% 
+  ggplot() +
+  geom_bar(aes(x = trigger, y = `F2 Score`, fill = trigger), stat='identity') +
+  facet_wrap(~imbalance)
+```
+
+
+As can be seen from the above charts, the models with the trigger fields have shown better predictability compared to those without triggers.

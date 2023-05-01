@@ -1,0 +1,49 @@
+Package: SSSIHLCASFraudClassifyR
+Type: Package
+Title: Use Triggers to Improve Fraud Classification
+Version: 0.1.0
+Authors@R:
+    person("SSSIHL", "-DMACS", , "dmacs@sssihl.com", role = c("aut", "cre"),
+           comment = c(ORCID = "YOUR-ORCID-ID"))
+Description: The package contains various functions that add flags to the claims data based on different criteria. These flags can in turn be used by users as inputs into any statistical or machine learning models to improve their model fit.
+Encoding: UTF-8
+LazyData: true
+RoxygenNote: 7.2.3
+Imports:
+    dplyr,
+    lubridate,
+    rlang
+Suggests: 
+    knitr,
+    rmarkdown,
+    broom,
+    caret,
+    rpart,
+    rpart.plot,
+    xgboost,
+    randomForest,
+    pROC,
+    e1071,
+    mlbench,
+    naivebayes,
+    ggplot2,
+    psych,
+    gbm,
+    caTools,
+    glmnet,
+    bruceR,
+    kableExtra,
+    smotefamily,
+    imbalance,
+    ROSE,
+    PRROC,
+    ROCR,
+    coop,
+    radiant.data,
+    tidyr,
+    stringr,
+    janitor
+VignetteBuilder: knitr
+Depends: 
+    R (>= 2.10)
+License: MIT + file LICENSE

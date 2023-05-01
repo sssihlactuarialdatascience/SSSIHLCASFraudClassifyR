@@ -1,0 +1,250 @@
+---
+title: "Fraud Classification with GLM"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{fraud_classification_glm}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  warning = FALSE,
+  message = FALSE
+)
+options(rmarkdown.html_vignette.check_title = FALSE)
+```
+
+## Improving fit of a Generalized Linear Model (GLM)
+
+One can add triggers to a standard claims dataset to improve your model's predictability of fraud. We illustrate this using a glm in this vignette. In the data pre-processing vignette, we treated the data imbalance in claims data using 4 different types of data imbalance techniques - ADASYN, SMOTE, MWMOTE and ROSE.
+
+GLM is a supervised machine learning algorithm used for regression and classification problems. In this scenario we are using it for a binary classification problem. It works by choosing a distribution that fits the data, selecting a link function to transform the response variable, estimating the model parameters, and making predictions on new data.
+It assumes a linear relationship between the predictors and the response variable.
+
+## Importing required libraries
+
+
+```{r}
+library(dplyr)
+library(rpart)
+library(pROC)
+library(caret)
+library(PRROC)
+library(tidyr)
+library(stringr)
+library(ggplot2)
+options(scipen=999)
+```
+
+
+
+## Creating GLM model function
+
+-   We create a function for implementing the GLM model in order to easily apply it on the various datasets.
+
+-   The function takes two arguments: train dataset and test dataset
+
+-   The response variable is "fraud" and all other variables are considered as predictor variables.
+
+-   Overall this function fits a GLM using the binomial family and logit link function for binary classification of fraud or non-fraud and evaluates its performance using various metrics.
+
+-   F2 score is used as the most appropriate metric to compare the model-fit results. This is because we want to improve identification of fraud.
+
+
+```{r}
+
+glm_function <- function(data_train, data_test) {
+  # Fit the GLM model
+  fit <-
+    glm(fraud ~ ., data = data_train, family = binomial(link = "logit"))
+  
+  # Testing Set
+  test_prob <-
+    predict(fit,
+            newdata = data_test %>% dplyr::select(-c("fraud")),
+            type = "response")
+  
+  # Get the ROC curve and calculate the ROC AUC
+  roc_obj <- roc(data_test$fraud, test_prob)
+  roc_auc <- auc(roc_obj)
+  
+  # Get the PR curve and calculate the PR AUC
+  pr_obj <- pr.curve(data_test$fraud, test_prob)
+  pr_auc <- pr_obj$auc.integral
+  
+  # Set the threshold based on the optimal ROC curve threshold
+  threshold <- coords(roc_obj, "best")[[1]]
+  model_glm_test_pred <- ifelse(test_prob > threshold, 1, 0)
+  
+  # Confusion Matrix
+  c1 <-
+    confusionMatrix(
+      data_test$fraud,
+      as.factor(model_glm_test_pred),
+      mode = "everything",
+      positive = "1"
+    )
+  c <-
+    rbind(c1, c(
+      paste0("GLM ", deparse(substitute(data_train))),
+      c1$overall[1],
+      c1$byClass[c(1, 2, 5, 6, 7)],
+      roc_auc,
+      pr_auc
+    ))
+  c <- as.data.frame(c[-1, ])
+  
+  colnames(c)[1] = "Method+dataset"
+  colnames(c)[8] = "ROC-AUC"
+  colnames(c)[9] = "PR-AUC"
+  
+  c <-
+    c %>%
+    mutate(
+      across(.cols = -`Method+dataset`, .fns = as.numeric),
+      trigger = ifelse(stringr::str_detect(`Method+dataset`, "wo"), "N", "Y")
+    ) %>%
+    separate(`Method+dataset`, c("method", "NA_1"), " ", remove = TRUE) %>%
+    separate(NA_1, c("imbalance", NA, NA)) %>% 
+    mutate(`F2 Score` = ((1 + 2^2) * Precision * Recall) / (2^2 * Precision + Recall)) %>% 
+    select(method, imbalance,trigger ,`F2 Score`)
+  
+  broom::tidy(fit)
+  
+  return(c)
+  
+}
+
+```
+
+```{r include=FALSE}
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/adasyn_wo_triggers_train.rda")
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/adasyn_wo_triggers_test.rda")
+
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/smote_wo_triggers_train.rda")
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/smote_wo_triggers_test.rda")
+
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/mwmote_wo_triggers_train.rda")
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/mwmote_wo_triggers_test.rda")
+
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/rose_wo_triggers_train.rda")
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/rose_wo_triggers_test.rda")
+
+```
+
+
+```{r include=FALSE}
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/adasyn_w_triggers_train.rda")
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/adasyn_w_triggers_test.rda")
+
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/smote_w_triggers_train.rda")
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/smote_w_triggers_test.rda")
+
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/mwmote_w_triggers_train.rda")
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/mwmote_w_triggers_test.rda")
+
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/rose_w_triggers_train.rda")
+load("E:/University/CAS project 2023/Final_CAS_Project/input datasets/rose_w_triggers_test.rda")
+```
+
+## Applying the function to the datasets
+
+The function is now applied to each of the datasets which are adjusted for the data imbalance using the ADASYN, SMOTE, MWMOTE and ROSE.
+
+**In brief about these methods:**
+
+-   ADASYN(Adaptive Synthetic Sampling) generates synthetic data points for the minority class in imbalanced datasets, creating more samples in underrepresented regions to improve model performance.
+
+-   SMOTE (Synthetic Minority Over-sampling Technique) generates synthetic data points for the minority class in imbalanced datasets by interpolating between minority class examples to create new samples.
+
+-   MWMOTE(Majority Weighted Minority Oversampling Technique) is a modification of SMOTE that aims to address the issue of noisy examples by adding a weighting factor to each minority class example based on its level of noise.
+
+-   ROSE (Random Over-Sampling Examples) generates synthetic data points for the minority class by randomly selecting a sample from the minority class.
+
+### ADASYN
+
+```{r }
+adasyn_wo_triggers <- 
+  glm_function(adasyn_wo_triggers_train,
+                adasyn_wo_triggers_test)
+```
+
+
+```{r }
+adasyn_w_triggers <-
+  glm_function(adasyn_w_triggers_train,
+                adasyn_w_triggers_test)
+```
+
+
+
+
+
+### SMOTE
+
+```{r}
+smote_wo_triggers <- 
+  glm_function(smote_wo_triggers_train,
+                smote_wo_triggers_test)
+```
+
+
+```{r}
+smote_w_triggers <-
+  glm_function(smote_w_triggers_train,
+                smote_w_triggers_test)
+```
+
+### MWMOTE
+
+```{r}
+mwmote_wo_triggers <- 
+  glm_function(mwmote_wo_triggers_train,
+                mwmote_wo_triggers_test)
+```
+
+
+```{r}
+mwmote_w_triggers <-
+  glm_function(mwmote_w_triggers_train,
+                mwmote_w_triggers_test)
+```
+
+### ROSE
+
+```{r}
+rose_wo_triggers <- 
+  glm_function(rose_wo_triggers_train,
+                rose_wo_triggers_test)
+```
+
+
+```{r}
+rose_w_triggers <-
+  glm_function(rose_w_triggers_train,
+                rose_w_triggers_test)
+```
+
+## Results comparison
+
+```{r}
+bind_rows(
+  adasyn_wo_triggers,
+  adasyn_w_triggers,
+  smote_wo_triggers,
+  smote_w_triggers,
+  mwmote_wo_triggers,
+  mwmote_w_triggers,
+  rose_wo_triggers,
+  rose_w_triggers
+) %>%
+  select(imbalance, trigger, everything()) %>% 
+  ggplot() +
+  geom_bar(aes(x = trigger, y = `F2 Score`, fill = trigger), stat='identity') +
+  facet_wrap(~imbalance)
+```
+
+As can be seen from the above charts, the models with the trigger fields have shown better predictability compared to those without triggers.
